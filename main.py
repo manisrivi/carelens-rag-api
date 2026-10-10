@@ -1,10 +1,23 @@
 import io
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
 from pydantic import BaseModel
 from pypdf import PdfReader
+from google import genai
+
+load_dotenv()
+
+client = genai.Client()
 
 app = FastAPI();
+
+def embed_texts(text: list[str]) -> list[list[float]]:
+    result = client.models.embed_content(
+        model="gemini-embedding-001",
+        contents=text
+    )
+    return [e.values for e in result.embeddings]
 
 def clean_text(text:str) -> str:
     lines = text.split("\n")
@@ -30,16 +43,20 @@ def ask(req: AskRequest):
 @app.post("/reports/upload")
 async def upload_report(file: UploadFile):
     content = await file.read()
-    
+
     reader = PdfReader(io.BytesIO(content))
     raw_text = "/n".join([page.extract_text() or "" for page in reader.pages])
     text = clean_text(raw_text)
     chunks = chunk_text(text)
+    embeddings = embed_texts(chunks)
     return {
         "filename": file.filename, 
         "size": len(reader.pages),
         "raw_characters": len(raw_text),
         "characters": len(text),
         "preview": text[:500],
-        "chunks": chunks
+        "chunks": chunks,
+        "chunk_count": len(chunks),
+        "embedding_count": len(embeddings),
+        "embedding_dimensions": len(embeddings[0]) 
         }
