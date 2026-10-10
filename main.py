@@ -1,14 +1,20 @@
 import io
+import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
 from pydantic import BaseModel
 from pypdf import PdfReader
 from google import genai
+from pymongo import MongoClient
 
 load_dotenv()
 
-client = genai.Client()
+client = genai.Client() 
+
+mongo = MongoClient(os.environ["MONGODB_URI"])
+db = mongo["carelens_py"]
+chunk_collections = db["report_chunks"]
 
 app = FastAPI();
 
@@ -30,7 +36,8 @@ def chunk_text(text:str, size: int = 500, overlap: int = 100) -> list[str]:
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    mongo.admin.command("ping")
+    return {"status": "ok", "mongodb": "connected"}
 
 class AskRequest(BaseModel):
     question: str
