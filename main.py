@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 from google import genai
 from pymongo import MongoClient
+from pymongo.operations import SearchIndexModel
 
 load_dotenv()
 
@@ -42,11 +43,62 @@ def health():
 
 class AskRequest(BaseModel):
     question: str
+    report_id: str
     top_k: int = 5
 
 @app.post("/ask")
 def ask(req: AskRequest):
-    return { "question": req.question, "top_k": req.top_k }
+    results = search_chunks(req.question, req.report_id, req.top_k)
+    return {"question": req.question, "results": results}
+
+def ensure_vector_index():
+    existing = [index["name"] for index in chunks_collection.list_search_indexes()]
+    if "vector_index" in existing:
+        return
+
+    model = SearchIndexModel(
+        name="vector_index",
+        type="vectorSearch",
+        definition={
+            "fields": [
+                {
+                    "type": "vector",
+                    "path": "embedding",
+                    "numDimensions": 3072,
+                    "similarity": "cosine",
+                },
+                {"type": "filter", "path": "report_id"},
+            ]
+        },
+    )
+    chunks_collection.create_search_index(model=model)
+ensure_vector_index()
+
+def search_chunks(question: str, report_id: str, top_k: int = 5) -> list[dict]:
+    query_embedding = embed_texts([question])[0]
+
+    pipeline = [
+        {
+            "$vectorSearch": {
+                "index": "vector_index",
+                "path": "embedding",
+                "queryVector": query_embedding,
+                "numCandidates": 100,
+                "limit": top_k,
+                "filter": {"report_id": report_id},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "text": 1,
+                "chunk_index": 1,
+                "score": {"$meta": "vectorSearchScore"},
+            }
+        },
+    ]
+
+    return list(chunks_collection.aggregate(pipeline))
 
 @app.post("/reports/upload")
 async def upload_report(file: UploadFile):
