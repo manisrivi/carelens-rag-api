@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.schemas import AskRequest
+from app.services.langchain_rag import ask_with_langchain
 from app.services.llm import generate_answer
 from app.services.vector_store import latest_report_id, search_chunks
 
@@ -34,4 +35,25 @@ def ask(req: AskRequest):
         "report_id": report_id,
         "answer": answer,
         "sources": results,
+    }
+
+
+@router.post("/ask-langchain")
+def ask_langchain(req: AskRequest):
+    report_id = req.report_id or latest_report_id()
+
+    if report_id is None:
+        return {
+            "question": req.question,
+            "answer": "No report uploaded yet. Please upload a report first.",
+            "sources": [],
+        }
+
+    answer, sources = ask_with_langchain(req.question, report_id, req.top_k)
+    return {
+        "question": req.question,
+        "report_id": report_id,
+        "answer": answer,
+        "sources": sources,
+        "engine": "langchain",
     }
