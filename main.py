@@ -13,6 +13,7 @@ from pymongo.operations import SearchIndexModel
 load_dotenv()
 
 client = genai.Client() 
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 mongo = MongoClient(os.environ["MONGODB_URI"])
 db = mongo["carelens_py"]
@@ -32,9 +33,25 @@ def clean_text(text:str) -> str:
     cleaned = [" ".join(line.split()) for line in lines]
     return "\n".join([line for line in cleaned if line])
 
-def chunk_text(text:str, size: int = 500, overlap: int = 100) -> list[str]:
-    step = size - overlap
-    return [text[i:i + size] for i in range(0, len(text), step)]
+def chunk_text(text: str, max_chars: int = 300) -> list[str]:
+    lines = text.split("\n")
+    chunks = []
+    current = []
+    current_len = 0
+
+    for line in lines:
+        if current and current_len + len(line) > max_chars:
+            chunks.append("\n".join(current))
+            current = [current[-1]]
+            current_len = len(current[0])
+
+        current.append(line)
+        current_len += len(line) + 1
+
+    if current:
+        chunks.append("\n".join(current))
+
+    return chunks
 
 @app.get("/health")
 def health():
@@ -43,7 +60,7 @@ def health():
 
 class AskRequest(BaseModel):
     question: str
-    report_id: str
+    report_id: str | None = None
     top_k: int = 5
 
 
@@ -62,16 +79,47 @@ Question: {question}
 """
 
     response = client.models.generate_content(
-        model="gemini-flash-latest",
+        model=GEMINI_MODEL,
         contents=prompt,
     )
     return response.text
 
+
+def latest_report_id() -> str | None:
+    doc = chunks_collection.find_one(
+        sort=[("_id", -1)],
+        projection={"report_id": 1},
+    )
+    return doc["report_id"] if doc else None
+
 @app.post("/ask")
 def ask(req: AskRequest):
-    results = search_chunks(req.question, req.report_id, req.top_k)
+    report_id = req.report_id or latest_report_id()
+
+    if report_id is None:
+        return {
+            "question": req.question,
+            "answer": "No report uploaded yet. Please upload a report first.",
+            "sources": [],
+        }
+
+    results = search_chunks(req.question, report_id, req.top_k)
+
+    if not results:
+        return {
+            "question": req.question,
+            "report_id": report_id,
+            "answer": "I could not find this in your report.",
+            "sources": [],
+        }
+
     answer = generate_answer(req.question, results)
-    return {"question": req.question, "answer": answer, "sources": results}
+    return {
+        "question": req.question,
+        "report_id": report_id,
+        "answer": answer,
+        "sources": results,
+    }
 def ensure_vector_index():
     existing = [index["name"] for index in chunks_collection.list_search_indexes()]
     if "vector_index" in existing:
