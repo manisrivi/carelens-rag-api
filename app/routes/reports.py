@@ -1,10 +1,11 @@
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 
+from app.security import require_api_key
 from app.services.embeddings import embed_texts
 from app.services.pdf import chunk_text, clean_text, extract_text
 from app.services.vector_store import save_chunks
 
-router = APIRouter(prefix="/reports", tags=["reports"])
+router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_api_key)])
 
 
 @router.post("/upload")
