@@ -56,7 +56,15 @@ def chunk_text(text: str, max_chars: int = 300) -> list[str]:
 @app.get("/health")
 def health():
     mongo.admin.command("ping")
-    return {"status": "ok", "mongodb": "connected"}
+    indexes = [
+        {
+            "name": index["name"],
+            "status": index.get("status"),
+            "queryable": index.get("queryable"),
+        }
+        for index in chunks_collection.list_search_indexes()
+    ]
+    return {"status": "ok", "mongodb": "connected", "search_indexes": indexes}
 
 class AskRequest(BaseModel):
     question: str
@@ -170,11 +178,11 @@ def search_chunks(question: str, report_id: str, top_k: int = 5) -> list[dict]:
     return list(chunks_collection.aggregate(pipeline))
 
 @app.post("/reports/upload")
-async def upload_report(file: UploadFile):
-    content = await file.read()
+def upload_report(file: UploadFile):
+    content = file.file.read()
 
     reader = PdfReader(io.BytesIO(content))
-    raw_text = "/n".join([page.extract_text() or "" for page in reader.pages])
+    raw_text = "\n".join([page.extract_text() or "" for page in reader.pages])
     text = clean_text(raw_text)
     chunks = chunk_text(text)
     embeddings = embed_texts(chunks)
@@ -187,21 +195,16 @@ async def upload_report(file: UploadFile):
             "filename": file.filename,
             "chunk_index": i,
             "text": chunk,
-            "embedding": embedding
+            "embedding": embedding,
         }
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
     ]
+
     chunks_collection.insert_many(docs)
 
     return {
         "report_id": report_id,
-        "filename": file.filename, 
-        "size": len(reader.pages),
-        "raw_characters": len(raw_text),
-        "characters": len(text),
-        "preview": text[:500],
-        "chunks": chunks,
+        "filename": file.filename,
+        "pages": len(reader.pages),
         "chunk_count": len(chunks),
-        "embedding_count": len(embeddings),
-        "embedding_dimensions": len(embeddings[0]) 
-        }
+    }
