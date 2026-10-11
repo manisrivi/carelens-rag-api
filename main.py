@@ -46,11 +46,32 @@ class AskRequest(BaseModel):
     report_id: str
     top_k: int = 5
 
+
+def generate_answer(question: str, chunks: list[dict]) -> str:
+    context = "\n\n---\n\n".join([c["text"] for c in chunks])
+
+    prompt = f"""You are CareLens, an assistant that explains blood test reports in simple language.
+Answer the question using ONLY the report excerpts below.
+If the answer is not in the excerpts, say you could not find it in the report.
+Do not diagnose. If a value is abnormal, suggest discussing it with a doctor.
+
+Report excerpts:
+{context}
+
+Question: {question}
+"""
+
+    response = client.models.generate_content(
+        model="gemini-flash-latest",
+        contents=prompt,
+    )
+    return response.text
+
 @app.post("/ask")
 def ask(req: AskRequest):
     results = search_chunks(req.question, req.report_id, req.top_k)
-    return {"question": req.question, "results": results}
-
+    answer = generate_answer(req.question, results)
+    return {"question": req.question, "answer": answer, "sources": results}
 def ensure_vector_index():
     existing = [index["name"] for index in chunks_collection.list_search_indexes()]
     if "vector_index" in existing:
