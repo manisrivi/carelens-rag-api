@@ -22,13 +22,14 @@ vector_store = MongoDBAtlasVectorSearch(
     embedding_key="embedding",
 )
 
-llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=api_key)
+llm = ChatGoogleGenerativeAI(model=GEMINI_MODEL, google_api_key=api_key, temperature=0)
 
 prompt = ChatPromptTemplate.from_template(
     """You are CareLens, an assistant that explains blood test reports in simple language.
 Answer the question using ONLY the report excerpts below.
 If the answer is not in the excerpts, say you could not find it in the report.
-Do not diagnose. If a value is abnormal, suggest discussing it with a doctor.
+For each value you mention, always state the reference range and whether it is normal, low, or high.
+Do not diagnose. If any value is abnormal, end by suggesting the user discuss it with a doctor.
 
 Report excerpts:
 {context}
