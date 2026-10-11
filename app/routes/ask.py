@@ -1,0 +1,37 @@
+from fastapi import APIRouter
+
+from app.schemas import AskRequest
+from app.services.llm import generate_answer
+from app.services.vector_store import latest_report_id, search_chunks
+
+router = APIRouter(tags=["ask"])
+
+
+@router.post("/ask")
+def ask(req: AskRequest):
+    report_id = req.report_id or latest_report_id()
+
+    if report_id is None:
+        return {
+            "question": req.question,
+            "answer": "No report uploaded yet. Please upload a report first.",
+            "sources": [],
+        }
+
+    results = search_chunks(req.question, report_id, req.top_k)
+
+    if not results:
+        return {
+            "question": req.question,
+            "report_id": report_id,
+            "answer": "I could not find this in your report.",
+            "sources": [],
+        }
+
+    answer = generate_answer(req.question, results)
+    return {
+        "question": req.question,
+        "report_id": report_id,
+        "answer": answer,
+        "sources": results,
+    }
