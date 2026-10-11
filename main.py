@@ -1,5 +1,6 @@
 import io
 import os
+import uuid
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile
@@ -14,7 +15,7 @@ client = genai.Client()
 
 mongo = MongoClient(os.environ["MONGODB_URI"])
 db = mongo["carelens_py"]
-chunk_collections = db["report_chunks"]
+chunks_collection = db["report_chunks"]
 
 app = FastAPI();
 
@@ -56,7 +57,23 @@ async def upload_report(file: UploadFile):
     text = clean_text(raw_text)
     chunks = chunk_text(text)
     embeddings = embed_texts(chunks)
+
+    report_id = str(uuid.uuid4())
+
+    docs = [
+        {
+            "report_id": report_id,
+            "filename": file.filename,
+            "chunk_index": i,
+            "text": chunk,
+            "embedding": embedding
+        }
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+    ]
+    chunks_collection.insert_many(docs)
+
     return {
+        "report_id": report_id,
         "filename": file.filename, 
         "size": len(reader.pages),
         "raw_characters": len(raw_text),
